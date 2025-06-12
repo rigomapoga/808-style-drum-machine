@@ -109,6 +109,10 @@ def preload_drum_sounds():
     if not loaded_drum_samples_base64:
         print("CRITICAL WARNING: No drum sounds were loaded. Ensure WAV files are present and valid.")
 
+# FIX: Call preload_drum_sounds() here, outside of the if __name__ == '__main__': block.
+# This ensures it runs when Gunicorn imports the app.
+preload_drum_sounds()
+
 # --- Flask Routes ---
 @app.route('/')
 def index():
@@ -158,7 +162,7 @@ def handle_trigger_drum(data):
         emit('error', {'message': f"Drum sound '{drum_type}' not available on backend."}, room=request.sid)
 
 
-# --- Main Execution Block (for local development and Render) ---
+# --- Main Execution Block (for local development) ---
 if __name__ == '__main__':
     # Ensure 'templates' directory exists for Flask's default route, though not strictly used by this app
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -167,9 +171,8 @@ if __name__ == '__main__':
         os.makedirs(template_dir)
         print(f"Created templates directory: {template_dir}")
 
-    # Pre-load sounds immediately when the server starts. This happens only once.
-    preload_drum_sounds()
-
+    # No need to call preload_drum_sounds() here anymore, it's called globally above.
+    
     port = int(os.environ.get('PORT', 5000))
     host = '0.0.0.0'
     print(f"Running 808 Drum Machine Flask-SocketIO server locally on {host}:{port}...")

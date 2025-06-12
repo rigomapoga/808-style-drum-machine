@@ -5,6 +5,7 @@ python-socketio==5.11.1
 gunicorn==22.0.0
 gevent==24.2.1
 gevent-websocket==0.10.1
-numpy==1.26.4  # Specific version for compatibility
-scipy==1.13.0  # Specific version for compatibility
-soundfile==0.12.1 # Specific version for compatibility
+numpy==1.26.4
+scipy==1.13.0
+soundfile==0.12.1
+Flask-Cors==4.0.0

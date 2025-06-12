@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>808 Drum Machine Sequencer Test</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'Noto Sans', 'sans-serif', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'],
+                    },
+                }
+            }
+        }
+    </script>
+    <!-- Font Awesome for Play/Pause icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <!-- Socket.IO client library CDN -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body {
+            @apply bg-gray-900 text-white flex items-center justify-center min-h-screen p-4;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden; /* Prevent horizontal scroll on small screens */
+        }
+        .drum-machine-container {
+            @apply flex flex-col items-center justify-center p-6 bg-gray-900 rounded-xl shadow-2xl;
+            max-width: 800px; /* Increased max-width for sequencer grid */
+            width: 100%; /* Ensure it takes full width up to max */
+            border: 2px solid #333;
+        }
+        .drum-machine-title {
+            @apply text-4xl font-extrabold text-red-500 mb-8 tracking-wide text-center;
+            text-shadow: 0 0 10px rgba(255, 0, 0, 0.5);
+        }
+        .drum-pads {
+            @apply grid grid-cols-1 sm:grid-cols-3 gap-6 w-full mb-8;
+        }
+        .drum-pad-button {
+            @apply flex flex-col items-center justify-center p-4 bg-gray-800 text-white rounded-lg shadow-lg cursor-pointer;
+            @apply transition-all duration-200 ease-in-out;
+            height: 100px;
+            border: 2px solid transparent;
+            font-size: 1.2rem;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+        .drum-pad-button.active {
+            @apply transform scale-95;
+            box-shadow: 0 0 25px rgba(255, 255, 255, 0.7);
+            animation: drum-glow 0.2s forwards;
+        }
+        @keyframes drum-glow {
+            0% { box-shadow: 0 0 15px rgba(255, 255, 255, 0.3); }
+            50% { box-shadow: 0 0 30px rgba(255, 255, 255, 0.8); }
+            100% { box-shadow: 0 0 15px rgba(255, 255, 255, 0.3); }
+        }
+        .drum-pad-button:not(.active):hover {
+            @apply bg-gray-700 border-indigo-400;
+            box-shadow: 0 0 20px rgba(129, 140, 248, 0.6);
+        }
+        .sequencer-grid-container {
+            @apply w-full bg-gray-800 rounded-lg p-4 shadow-xl;
+        }
+        .sequencer-row {
+            @apply flex items-center mb-2;
+            width: 100%;
+        }
+        .instrument-label {
+            @apply w-24 text-lg font-bold text-gray-300 text-right pr-4 flex-shrink-0;
+        }
+        /* REVERTED CSS for horizontal layout and fixed size squares as per user's request */
+        .steps-container {
+            @apply grid grid-cols-16 gap-2 flex-grow; /* 16 steps in a row */
+            display: flex; /* This creates a flex container for the grid items */
+            align-content: center;
+            /* align-items: center; */ /* User's commented out rule */
+            flex-direction: row; /* Explicitly sets flex direction */
+            min-width: 900px !important; /* Forces a minimum width to ensure horizontal layout */
+        }
+        .step-cell {
+            @apply w-full h-12 flex items-center justify-center rounded-sm cursor-pointer;
+            background-color: #4A5568;
+            border: 1px solid #2d3748;
+            transition: background-color 0.2s;
+            width: 30px; /* Explicit width for a square */
+            height: 30px; /* Explicit height for a square */
+        }
+        /* FIX for notes not showing visually: Changed color and added !important for specificity */
+        .step-cell.active-note {
+            background-color: #10B981 !important; /* Vibrant green for active note */
+            @apply shadow-md;
+            border: 1px solid #047857 !important; /* Darker green border */
+        }
+        /* FIX for current step highlight visibility and style */
+        .step-cell.current-step-highlight {
+            background-color: #6366F1 !important; /* Indigo for current playback step */
+            @apply border-2 border-yellow-400 !important; /* Yellow border */
+        }
+        .controls-bar {
+            @apply flex flex-col sm:flex-row items-center justify-center gap-6 mt-8 w-full;
+        }
+        .play-pause-button {
+            @apply p-3 bg-green-600 hover:bg-green-700 text-white rounded-full shadow-lg;
+            @apply transition-colors duration-200;
+            width: 60px; /* Fixed width for icon */
+            height: 60px; /* Fixed height for icon */
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .play-pause-button.pause {
+            @apply bg-red-600 hover:bg-red-700;
+        }
+        .bpm-control {
+            @apply flex items-center gap-3 bg-gray-700 p-3 rounded-lg shadow-inner;
+        }
+        .bpm-control label {
+            @apply text-lg font-semibold text-gray-300;
+        }
+        .bpm-control input[type="range"] {
+            @apply w-32 h-2 bg-gray-600 rounded-lg appearance-none cursor-pointer;
+        }
+        .bpm-control input[type="range"]::-webkit-slider-thumb {
+            @apply appearance-none w-4 h-4 bg-yellow-400 rounded-full shadow-lg;
+            border: 1px solid #facc15;
+        }
+        .bpm-control input[type="range"]::-moz-range-thumb {
+            @apply w-4 h-4 bg-yellow-400 rounded-full shadow-lg;
+            border: 1px solid #facc15;
+        }
+        .bpm-value {
+            @apply text-xl font-mono text-yellow-400;
+        }
+        .connection-status {
+            @apply mt-6 text-sm text-gray-400;
+        }
+        .connection-status.connected {
+            @apply text-green-400;
+        }
+        .connection-status.disconnected {
+            @apply text-red-400;
+        }
+    </style>
+</head>
+<body>
+    <div class="drum-machine-container">
+        <h1 class="drum-machine-title">808 Beatbox</h1>
+
+        <!-- Individual Drum Pads for direct triggering -->
+        <div class="drum-pads">
+            <button id="pad-kick" class="drum-pad-button kick">KICK</button>
+            <button id="pad-snare" class="drum-pad-button snare">SNARE</button>
+            <button id="pad-hihat" class="drum-pad-button hihat">HI-HAT</button>
+        </div>
+
+        <!-- Sequencer Grid -->
+        <div class="sequencer-grid-container">
+            <!-- Kick Row -->
+            <div class="sequencer-row">
+                <div class="instrument-label">KICK</div>
+                <div id="steps-kick" class="steps-container">
+                    <!-- Cells will be generated by JS -->
+                </div>
+            </div>
+            <!-- Snare Row -->
+            <div class="sequencer-row">
+                <div class="instrument-label">SNARE</div>
+                <div id="steps-snare" class="steps-container">
+                    <!-- Cells will be generated by JS -->
+                </div>
+            </div>
+            <!-- Hi-Hat Row -->
+            <div class="sequencer-row">
+                <div class="instrument-label">HI-HAT</div>
+                <div id="steps-hihat" class="steps-container">
+                    <!-- Cells will be generated by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Play/Pause & BPM Controls -->
+        <div class="controls-bar">
+            <button id="playPauseButton" class="play-pause-button">
+                <i class="fas fa-play"></i>
+            </button>
+
+            <div class="bpm-control">
+                <label for="bpmSlider">BPM:</label>
+                <input type="range" id="bpmSlider" min="60" max="200" step="1" value="120">
+                <span id="bpmValue" class="bpm-value">120</span>
+            </div>
+        </div>
+
+        <p id="connectionStatus" class="connection-status">Status: Connecting...</p>
+    </div>
+
+    <script>
+        // --- Drum Machine Constants ---
+        const DRUM_TYPES = ['kick', 'snare', 'hihat'];
+        const NUM_STEPS = 16;
+        const INITIAL_BPM = 120;
+
+        // --- IMPORTANT: Set your Python Backend URL here ---
+        const PYTHON_BACKEND_URL = 'http://localhost:5000'; // <--- **ADJUST THIS URL**
+
+        const socket = io(PYTHON_BACKEND_URL);
+        let audioContext;
+        let audioBuffers = {}; // To store decoded audio buffers
+
+        // Sequencer State (JS variables)
+        let sequence = {};
+        DRUM_TYPES.forEach(type => {
+            sequence[type] = Array(NUM_STEPS).fill(false);
+        });
+        // Pre-fill a simple beat for demonstration
+        sequence['kick'][0] = true;
+        sequence['kick'][8] = true;
+        sequence['snare'][4] = true;
+        sequence['snare'][12] = true;
+        sequence['hihat'][0] = true;
+        sequence['hihat'][2] = true;
+        sequence['hihat'][4] = true;
+        sequence['hihat'][6] = true;
+        sequence['hihat'][8] = true;
+        sequence['hihat'][10] = true;
+        sequence['hihat'][12] = true;
+        sequence['hihat'][14] = true;
+
+        let bpm = INITIAL_BPM;
+        let isPlaying = false;
+        let currentStep = 0; // 0-indexed current playing step
+
+        // Playback scheduling variables
+        let schedulerIntervalId = null; // Stores setInterval ID
+        let nextNoteTime = 0.0; // Stores the AudioContext time for the next note
+        const lookahead = 0.1; // seconds ahead to schedule notes
+        const scheduleIntervalMs = 25; // ms for scheduler to wake up
+
+        // --- DOM Elements ---
+        const connectionStatusEl = document.getElementById('connectionStatus');
+        const playPauseButton = document.getElementById('playPauseButton');
+        const bpmSlider = document.getElementById('bpmSlider');
+        const bpmValueSpan = document.getElementById('bpmValue');
+
+        const kickPadButton = document.getElementById('pad-kick');
+        const snarePadButton = document.getElementById('pad-snare');
+        const hihatPadButton = document.getElementById('pad-hihat');
+
+        // --- Audio Context Initialization ---
+        function initAudioContext() {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                // Resume context if it's suspended (e.g., in some browsers until user gesture)
+                audioContext.resume();
+                console.log('AudioContext initialized');
+            }
+        }
+
+        // --- Play Sound Function ---
+        function playSound(drumType, time) {
+            if (!audioContext || !audioBuffers[drumType]) {
+                // console.warn(`Cannot play ${drumType}, buffer not loaded or context not ready.`);
+                return;
+            }
+
+            const source = audioContext.createBufferSource();
+            source.buffer = audioBuffers[drumType];
+            source.connect(audioContext.destination);
+            source.start(time);
+
+            // Visual feedback: add 'active' class to corresponding drum pad button
+            const drumPadButton = document.getElementById(`pad-${drumType}`);
+            if (drumPadButton) {
+                drumPadButton.classList.add('active');
+                setTimeout(() => {
+                    drumPadButton.classList.remove('active');
+                }, 150); // Short animation
+            }
+        }
+
+        // --- Playback Scheduling Loop ---
+        function playbackLoop() {
+            if (!audioContext || !isPlaying) return;
+
+            while (nextNoteTime < audioContext.currentTime + lookahead) {
+                const secondsPerBeat = 60.0 / bpm;
+                const secondsPerStep = secondsPerBeat / 4; // 16 steps per 4 beats (4 steps per beat)
+
+                // Schedule sounds for the current step if notes are on
+                DRUM_TYPES.forEach(drumType => {
+                    if (sequence[drumType][currentStep]) {
+                        playSound(drumType, nextNoteTime);
+                    }
+                });
+
+                // Update visual current step highlight for the *current* step being played
+                // This function is crucial for setting/resetting note and highlight colors correctly.
+                updateCurrentStepHighlight(currentStep); 
+
+                // Move to the next step
+                currentStep = (currentStep + 1) % NUM_STEPS;
+                nextNoteTime += secondsPerStep;
+            }
+        }
+
+        // --- UI Rendering & Interaction Functions ---
+
+        // Function to create and render sequencer cells
+        function renderSequencerGrid() {
+            DRUM_TYPES.forEach(drumType => {
+                const stepsContainer = document.getElementById(`steps-${drumType}`);
+                // Ensure stepsContainer exists before trying to manipulate it
+                if (stepsContainer) {
+                    stepsContainer.innerHTML = ''; // Clear previous cells
+
+                    for (let i = 0; i < NUM_STEPS; i++) {
+                        const stepCell = document.createElement('div');
+                        stepCell.classList.add('step-cell');
+                        stepCell.dataset.drumType = drumType;
+                        stepCell.dataset.stepIndex = i;
+
+                        // Set initial active state based on sequence
+                        if (sequence[drumType][i]) {
+                            stepCell.classList.add('active-note');
+                        }
+
+                        stepCell.addEventListener('click', () => {
+                            toggleNote(drumType, i);
+                            // Visually update the clicked cell immediately
+                            stepCell.classList.toggle('active-note');
+                        });
+                        stepsContainer.appendChild(stepCell);
+                    }
+                } else {
+                    console.error(`Sequencer steps container not found for ${drumType}: #steps-${drumType}`);
+                }
+            });
+        }
+
+        // Function to update the visual highlight for the current playing step
+        // This function explicitly removes and re-applies classes to ensure correct visual state.
+        function updateCurrentStepHighlight(stepIndexToHighlight) {
+            DRUM_TYPES.forEach(drumType => {
+                const stepsContainer = document.getElementById(`steps-${drumType}`);
+                if (stepsContainer) {
+                    for (let i = 0; i < NUM_STEPS; i++) {
+                        const stepCell = stepsContainer.children[i];
+                        if (stepCell) {
+                            // 1. Remove ALL highlight classes for this cell for a clean slate
+                            stepCell.classList.remove('current-step-highlight');
+                            // 2. Remove active-note class (will be re-added if necessary)
+                            stepCell.classList.remove('active-note'); 
+
+                            // 3. Re-apply active-note based on the sequence data (the actual note state)
+                            if (sequence[drumType][i]) {
+                                stepCell.classList.add('active-note');
+                            }
+
+                            // 4. Apply current step highlight if this cell is in the currently playing column
+                            if (i === stepIndexToHighlight) {
+                                stepCell.classList.add('current-step-highlight');
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+
+        // Function to toggle a note in the sequence
+        function toggleNote(drumType, stepIndex) {
+            sequence[drumType][stepIndex] = !sequence[drumType][stepIndex];
+            console.log(`Toggled ${drumType} at step ${stepIndex}: ${sequence[drumType][stepIndex]}`);
+        }
+
+        // --- Event Listeners ---
+
+        // Socket.IO event listeners
+        socket.on('connect', () => {
+            connectionStatusEl.textContent = `Status: Connected (ID: ${socket.id})`;
+            connectionStatusEl.classList.remove('disconnected');
+            connectionStatusEl.classList.add('connected');
+            console.log('Connected to backend:', socket.id);
+            // Request all drum sounds upon successful connection for buffering
+            DRUM_TYPES.forEach(type => {
+                socket.emit('trigger_drum', { type: type });
+            });
+        });
+
+        socket.on('disconnect', () => {
+            connectionStatusEl.textContent = 'Status: Disconnected - Please check backend';
+            connectionStatusEl.classList.remove('connected');
+            connectionStatusEl.classList.add('disconnected');
+            console.log('Disconnected from backend');
+            audioBuffers = {}; // Clear buffers on disconnect
+            // Stop sequencer if disconnected
+            clearInterval(schedulerIntervalId);
+            schedulerIntervalId = null;
+            isPlaying = false; // Ensure playback state is false
+            currentStep = 0; // Reset visual step to 0 when truly disconnected
+            playPauseButton.innerHTML = '<i class="fas fa-play"></i>'; // Reset icon
+            playPauseButton.classList.remove('pause');
+            // Ensure visual highlight is cleared on disconnect
+            updateCurrentStepHighlight(-1); // Clear all highlights by passing an invalid step index
+            // renderSequencerGrid(); // Re-render is not needed just to clear highlights
+        });
+
+        socket.on('connect_error', (error) => {
+            connectionStatusEl.textContent = 'Status: Connection Error';
+            connectionStatusEl.classList.remove('connected');
+            connectionStatusEl.classList.add('disconnected');
+            console.error('Socket connection error:', error);
+        });
+
+        socket.on('audio_data', (data) => {
+            initAudioContext(); // Ensure context is initialized upon receiving data
+
+            const base64String = data.wav_base64;
+            if (!base64String) {
+                console.error("No Base64 WAV data received from backend for", data.type);
+                return;
+            }
+
+            // Convert Base64 to ArrayBuffer
+            const binaryString = atob(base64String);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            const arrayBuffer = bytes.buffer;
+
+            // Decode audio data
+            audioContext.decodeAudioData(arrayBuffer)
+                .then(buffer => {
+                    audioBuffers[data.type] = buffer; // Store the buffer
+                    console.log(`Buffered ${data.type} sound.`);
+                })
+                .catch(e => console.error(`Error decoding audio data for ${data.type}:`, e));
+        });
+
+        socket.on('error', (err) => {
+            console.error("Socket error:", err);
+            connectionStatusEl.textContent = `Error: ${err.message}`;
+        });
+
+        // Function to toggle playback state (Play/Pause)
+        function togglePlayback() {
+            if (!isPlaying) { // If currently paused, start playing
+                // Ensure audio context is resumed from suspended state
+                if (audioContext && audioContext.state === 'suspended') {
+                    audioContext.resume().then(() => {
+                        console.log("AudioContext resumed from suspended state.");
+                        startScheduler(); // Start scheduler only after context resumes
+                    });
+                } else {
+                    startScheduler(); // Start immediately if context is running
+                }
+            } else { // If currently playing, pause
+                stopScheduler();
+            }
+        }
+
+        function startScheduler() {
+            isPlaying = true;
+            playPauseButton.innerHTML = '<i class="fas fa-pause"></i>';
+            playPauseButton.classList.add('pause');
+
+            // Only reset currentStep and nextNoteTime if starting from a full stop (schedulerIntervalId is null)
+            if (schedulerIntervalId === null) {
+                currentStep = 0; // Reset visual step to 0
+                nextNoteTime = audioContext.currentTime; // Align scheduler with current audio time
+            }
+            
+            schedulerIntervalId = setInterval(playbackLoop, scheduleIntervalMs);
+            console.log("Sequencer started.");
+        }
+
+        function stopScheduler() {
+            isPlaying = false;
+            playPauseButton.innerHTML = '<i class="fas fa-play"></i>';
+            playPauseButton.classList.remove('pause');
+            clearInterval(schedulerIntervalId);
+            schedulerIntervalId = null;
+            // DO NOT reset currentStep here. It should hold its position for resume.
+            // Call updateCurrentStepHighlight to clear all highlights after stopping/pausing
+            updateCurrentStepHighlight(-1); // Use -1 or a flag to indicate clear all
+            console.log("Sequencer paused.");
+        }
+
+        // BPM slider input handler
+        bpmSlider.addEventListener('input', (event) => {
+            bpm = parseInt(event.target.value);
+            bpmValueSpan.textContent = bpm;
+        });
+
+        // Direct drum pad click handlers (for instant sound without sequencer)
+        kickPadButton.addEventListener('click', () => {
+            initAudioContext();
+            playSound('kick', audioContext.currentTime);
+            // Optionally, trigger backend for buffering if not already
+            if (!audioBuffers['kick']) {
+                socket.emit('trigger_drum', { type: 'kick' });
+            }
+        });
+        snarePadButton.addEventListener('click', () => {
+            initAudioContext();
+            playSound('snare', audioContext.currentTime);
+            if (!audioBuffers['snare']) {
+                socket.emit('trigger_drum', { type: 'snare' });
+            }
+        });
+        hihatPadButton.addEventListener('click', () => {
+            initAudioContext();
+            playSound('hihat', audioContext.currentTime);
+            if (!audioBuffers['hihat']) {
+                socket.emit('trigger_drum', { type: 'hihat' });
+            }
+        });
+
+        // Initial render of sequencer grid on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            renderSequencerGrid();
+            bpmSlider.value = INITIAL_BPM; // Ensure slider matches initial BPM
+            bpmValueSpan.textContent = INITIAL_BPM; // Set initial BPM display
+            // Give a brief moment for socket to establish connection before showing overlay
+            setTimeout(() => {
+                if (!socket.connected) {
+                    connectionStatusEl.textContent = 'Status: Connecting...';
+                }
+            }, 100);
+        });
+
+        // Attach togglePlayback to the playPauseButton
+        playPauseButton.addEventListener('click', togglePlayback);
+
+    </script>
+</body>
+</html>
